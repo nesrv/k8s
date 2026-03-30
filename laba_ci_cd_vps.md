@@ -224,71 +224,15 @@ ls -la
 
 Для доступа из браузера в `service.yaml` нужны тип **NodePort** и `**nodePort`** (например `30080`). Если в репозитории `ClusterIP`, замените `spec` сервиса на пример из варианта B.
 
-**Вариант B — без Git**
-
-```bash
-mkdir -p ~/lab-app/k8s
-cd ~/lab-app/k8s
-nano deployment.yaml
-```
-
-`deployment.yaml` (замените `DOCKERHUB_USERNAME`):
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: lab1-api
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: lab1-api
-  template:
-    metadata:
-      labels:
-        app: lab1-api
-    spec:
-      containers:
-        - name: lab1-api
-          image: DOCKERHUB_USERNAME/lab1-api:latest
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 8000
-```
-
-```bash
-nano service.yaml
-```
-
-`service.yaml`:
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: lab1-api
-spec:
-  type: NodePort
-  selector:
-    app: lab1-api
-  ports:
-    - port: 80
-      targetPort: 8000
-      nodePort: 30080
-```
-
-Образ должен быть в Docker Hub: на ПК `docker build`, `docker login`, `docker push`. С VPS нужен выход в интернет для `pull` слоёв.
-
 ---
 
 #### 5. Примените манифесты
 
-Рабочий каталог — `k8s/`: после клона это `~/ИМЯ_РЕПО/k8s`, при варианте B — `~/lab-app/k8s`.
+Рабочий каталог — `k8s/`: после клона это `~/ИМЯ_РЕПО/k8s`.
 
 ```bash
-kubectl apply -f deployment.yaml
-kubectl apply -f service.yaml
+sudo kubectl apply -f deployment.yaml
+sudo kubectl apply -f service.yaml
 ```
 
 ---
@@ -296,7 +240,7 @@ kubectl apply -f service.yaml
 #### 6. Проверьте поды и сервисы
 
 ```bash
-kubectl get pods,svc
+kubectl get nodes
 ```
 
 Поды в `STATUS` должны стать `Running`. Для `Service` типа `NodePort` запомните порт узла — в примере **30080** (в `PORT(S)` вид `80:30080/TCP`).
