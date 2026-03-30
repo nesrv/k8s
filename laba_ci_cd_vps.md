@@ -240,22 +240,44 @@ sudo kubectl apply -f service.yaml
 #### 6. Проверьте поды и сервисы
 
 ```bash
-kubectl get nodes
+kubectl get pods -l app=lab1-api
+kubectl get svc lab1-api
 ```
 
-Поды в `STATUS` должны стать `Running`. Для `Service` типа `NodePort` запомните порт узла — в примере **30080** (в `PORT(S)` вид `80:30080/TCP`).
+У подов в колонке `STATUS` должно быть **`Running`**, в **`READY`** — **`1/1`**. Если не настроили `KUBECONFIG` и копию `~/.kube/config` (п. 2), используйте **`sudo kubectl`** вместо `kubectl`.
+
+Для сервиса типа **NodePort** в `PORT(S)` должен быть вид **`80:30080/TCP`** (внешний порт узла **30080** совпадает с `nodePort` в `service.yaml`).
+
+Проверка с самого VPS (когда поды уже `Running`):
+
+```bash
+curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:30080/docs
+```
+
+Ожидается код **200** (или редирект **3xx**). Если **`000`** / «Couldn't connect» при живых подах — смотрите файрвол (п. 7); если поды не в `Running` — сначала устраните **ImagePullBackOff** (п. 11).
 
 ---
 
 #### 7. Разрешите вход с интернета
 
-В панели провайдера откройте inbound **TCP 30080** и **TCP 22** (SSH). На машине при включённом `ufw`:
+В **панели провайдера** (Hostiman и т.п.) откройте inbound **TCP 30080** и **TCP 22** (SSH) — это отдельно от UFW на машине.
+
+На VPS с **ufw**:
 
 ```bash
 sudo ufw allow 22/tcp
 sudo ufw allow 30080/tcp
 sudo ufw status
 ```
+
+Если в выводе **`Status: inactive`**, правила только сохранены, **трафик пока не фильтруется** UFW. Чтобы включить файрвол:
+
+```bash
+sudo ufw enable
+sudo ufw status verbose
+```
+
+Должно быть **`Status: active`** и в списке разрешения для **22** и **30080**. Перед `enable` убедитесь, что **22/tcp** уже разрешён, чтобы не потерять SSH.
 
 ---
 
@@ -264,7 +286,9 @@ sudo ufw status
 - `http://81.90.182.174:30080/docs`
 - или `http://alekseeva.h1n.ru:30080/docs`
 
-Порт должен совпадать с `nodePort` в `service.yaml`.
+Порт должен совпадать с `nodePort` в `service.yaml`. Домен должен иметь **A-запись** на тот же IP, что у VPS.
+
+**Если страница не открывается:** сервис не должен быть **`ClusterIP`** — для доступа из браузера нужен **NodePort** и поле **`nodePort: 30080`** (см. п. 4). Дополнительно проверьте поды (п. 6), UFW и файрвол провайдера (п. 7).
 
 ---
 
@@ -294,6 +318,69 @@ kubectl rollout status deployment/lab1-api
 ```bash
 kubectl rollout history deployment/lab1-api
 ```
+
+---
+
+#### 11. Частые проблемы и диагностика
+
+**`kubectl`: `permission denied` для `/etc/rancher/k3s/k3s.yaml`**  
+Пока не скопировали kubeconfig в `~/.kube/config` и не задали `KUBECONFIG` (п. 2), вызывайте **`sudo kubectl …`**.
+
+---
+
+**Образ в Docker Hub и тег**
+
+Имя и тег в трёх местах должны **совпадать**:
+
+1. `docker build -t ВАШ_LOGIN/lab1-api:ТЕГ .`
+2. `docker push ВАШ_LOGIN/lab1-api:ТЕГ`
+3. в `deployment.yaml`: `image: ВАШ_LOGIN/lab1-api:ТЕГ`
+
+Строка вида `docker push nesrv2026/lab1-api:tagname` в шпаргалках — **заглушка**: вместо **`tagname`** укажите реальный тег (**`latest`**, **`v1`** и т.д.). На [hub.docker.com](https://hub.docker.com/) в репозитории на вкладке **Tags** должен быть этот тег **до** того, как k3s сделает pull.
+
+---
+
+**`ImagePullBackOff` / `ErrImagePull`**
+
+Посмотреть причину:
+
+```bash
+kubectl describe pod -l app=lab1-api | sed -n '/Events:/,$p'
+```
+
+(или `sudo kubectl`, если без `KUBECONFIG`.)
+
+| Сообщение в Events | Что делать |
+|--------------------|------------|
+| **`not found`** / `failed to resolve reference` | Образа с таким именем/тегом **нет** в registry. Соберите, запушьте, проверьте теги на Docker Hub; в `deployment.yaml` то же `image:`. |
+| **`unauthorized`** / **`pull access denied`** | Часто **приватный** репозиторий. Создайте секрет: `kubectl create secret docker-registry regcred --docker-server=https://index.docker.io/v1/ --docker-username=… --docker-password=… --docker-email=…` и в `deployment.yaml` в `spec.template.spec` добавьте `imagePullSecrets: [{ name: regcred }]`, затем `kubectl apply -f deployment.yaml`. |
+| **`toomanyrequests`** | Лимит анонимных pull с Docker Hub; войдите в Hub через **`imagePullSecrets`** (как выше). |
+
+Проверка pull с узла (диагностика):
+
+```bash
+sudo crictl pull ВАШ_LOGIN/lab1-api:latest
+```
+
+---
+
+**Сайт / `curl` на `:30080` не отвечает**
+
+1. Поды **`Running`**, **`1/1`** — иначе NodePort некому обслуживать.  
+2. Сервис — **NodePort**, в `get svc` вид **`80:30080/TCP`**.  
+3. **UFW** активен и разрешён **30080**; в панели провайдера открыт **TCP 30080**.
+
+---
+
+**`kubectl get pods … -w` после выката**
+
+Видны **старые** поды в **`Terminating`** / **`Completed`** и **новые** в **`Running 1/1`** — это **нормально** при rolling update. Остановите поток (**Ctrl+C**), финальное состояние:
+
+```bash
+kubectl get pods -l app=lab1-api
+```
+
+Должны остаться только поды в **`Running`**.
 
 ---
 
