@@ -1,0 +1,2 @@
+# Локальные секреты — не коммитить (GitHub Push Protection блокирует PAT в истории)
+etc.secrets.local
