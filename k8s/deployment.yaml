@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: lab1-api
-          image: lab1-api:1.1
+          image: nesrv2026/lab1-api:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
