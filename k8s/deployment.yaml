@@ -18,3 +18,10 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
+          livenessProbe:
+            httpGet:
+              path: /slow
+              port: 8000
+            timeoutSeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
