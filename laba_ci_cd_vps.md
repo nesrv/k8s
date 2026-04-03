@@ -10,9 +10,8 @@
 
 ## 2. Что получите в итоге
 
-- после `git push` запускается CI-пайплайн;
-- проходят проверки и собирается образ;
-- образ публикуется в registry;
+- после `git push` запускается CI-пайплайн (в примере **`.github/workflows/ci-cd.yml`** — сборка и выкат, **без** отдельных шагов тестов/линтеров, их при желании добавьте сами);
+- собирается Docker-образ и публикуется в registry;
 - на VPS в k3s выполняется обновление Deployment (новый образ в кластере);
 - при проблеме можно сделать rollback (`kubectl rollout undo`).
 - **(дополнение)** при прохождении блока GitOps: кластер подтягивает манифесты из репозитория, интерфейс Argo CD показывает синхронизацию и здоровье приложения.
@@ -34,7 +33,7 @@
 
 **Дополнение (GitOps):** на кластере работает **Argo CD**; он **сам** сверяет Git с кластером (**pull-модель**). Подробнее — раздел **«GitOps (опционально): Argo CD»** в конце методички.
 
-**Как читать документ дальше:** блоки идут в **рабочем порядке** — сначала **Docker Hub** (образ в registry), затем **ручной деплой на VPS** (k3s, `kubectl`, сеть). После шагов 1–10 — **типичные ошибки** (п. 11). **Argo CD** в конце — **отдельная ветка**: базовую лабу можно пройти без неё.
+**Как читать документ дальше:** блоки идут в **рабочем порядке** — сначала **§5 Docker Hub** (образ в registry), затем **ручной деплой на VPS** (нумерованные **п. 1–10**: k3s, `kubectl`, сеть, в т.ч. **п. 8 — браузер**), затем **CD через GitHub Actions**. После **п. 11** — **типичные ошибки**. **GitOps (Argo CD)** в конце — **своя нумерация шагов 0–9** (не путать с п. 8 ручного деплоя). Базовую лабу можно пройти без Actions и без Argo.
 
 ---
 
@@ -55,11 +54,11 @@ project/
       ci-cd.yml
 ```
 
-Файл **`ci-cd.yml`** в методичке не разбирается по строкам: в нём обычно **сборка образа** и при желании **SSH + `kubectl`** (тот же смысл, что ручные шаги ниже, но автоматически после `git push`).
+Файл **`.github/workflows/ci-cd.yml`** лежит в репозитории (пример ниже). Подробная **привязка GitHub → VPS** (секреты, SSH, команды на сервере) — в разделе **«CD через GitHub Actions»** после ручного деплоя.
 
 ---
 
-## Публикация образов в Docker Hub
+## 5. Публикация образов в Docker Hub
 
 Образ должен лежать в **публичном или приватном registry**, иначе k3s на VPS не сможет выполнить `pull` с Docker Hub — только локальная сборка на вашем ПК недостаточна.
 
@@ -77,7 +76,7 @@ project/
 
 1. Зарегистрируйтесь на [hub.docker.com](https://hub.docker.com/). Запомните **логин** (Docker ID) — он участвует в имени образа.
 2. Создайте **Access Token** (для входа из CLI и для GitHub Actions): *Account Settings → Security → New Access Token* — права **Read & Write** (или аналог для загрузки образов). **Пароль при `docker login` вводить не нужно** — вместо пароля вставляют этот токен.
-3. Имя образа на Docker Hub всегда в виде `**ВАШ_LOGIN/имя_репозитория:тег`** (например `ivanov/lab1-api:latest`). Репозиторий на сайте можно создать заранее (*Repositories → Create*), но чаще он **появляется автоматически** после первого успешного `docker push` с таким именем.
+3. Имя образа на Docker Hub всегда в виде **ВАШ_LOGIN/имя_репозитория:тег** (например `ivanov/lab1-api:latest`). Репозиторий на сайте можно создать заранее (*Repositories → Create*), но чаще он **появляется автоматически** после первого успешного `docker push` с таким именем.
 
 ---
 
@@ -141,17 +140,19 @@ image: DOCKERHUB_USERNAME/lab1-api:latest
 
 #### Подключение по SSH (с вашего ПК)
 
+**Пример ниже — учебный** (чужой VPS); подставьте **своего** пользователя Linux на сервере, **IP** или **DNS** из панели провайдера.
+
 ```bash
 ssh alekseeva@81.90.182.174
 ```
 
-**Имя хоста (DNS):** `alekseeva.h1n.ru` — при настроенной A-записи:
+**Имя хоста (DNS), пример:** `alekseeva.h1n.ru` — при настроенной A-записи на IP VPS:
 
 ```bash
 ssh alekseeva@alekseeva.h1n.ru
 ```
 
-Дальнейшие шаги выполняются **на VPS** в SSH-сессии. Подставьте вместо `DOCKERHUB_USERNAME` свой логин Docker Hub; при другом сервере — свой пользователь, IP и домен.
+Дальнейшие шаги выполняются **на VPS** в SSH-сессии. Подставьте вместо `DOCKERHUB_USERNAME` свой логин Docker Hub.
 
 ---
 
@@ -311,6 +312,8 @@ kubectl set image deployment/lab1-api lab1-api=$IMG
 kubectl rollout status deployment/lab1-api
 ```
 
+Если в п. 5 вы применяли манифесты через **`sudo kubectl`**, здесь тоже используйте **`sudo kubectl set image`** и **`sudo kubectl rollout status`**.
+
 Имена `deployment/lab1-api` и контейнера `lab1-api` должны совпадать с `metadata.name` в `deployment.yaml` и `containers[].name`.
 
 ---
@@ -332,10 +335,22 @@ kubectl rollout history deployment/lab1-api
 
 #### 11. Частые проблемы и диагностика
 
-Этот пункт — **справочник**: возвращайтесь к нему при ошибках на любом из шагов 5–10.
+Этот пункт — **справочник**: возвращайтесь к нему при ошибках на любом из шагов 5–10 и при отладке **CD через GitHub Actions** (следующий раздел).
 
 **`kubectl`: `permission denied` для `/etc/rancher/k3s/k3s.yaml`**  
 Пока не скопировали kubeconfig в `~/.kube/config` и не задали `KUBECONFIG` (п. 2), вызывайте **`sudo kubectl …`**.
+
+---
+
+**GitHub Actions: deploy падает по SSH**
+
+См. раздел **«CD через GitHub Actions»**: ключ в **`authorized_keys`**, секрет **`VPS_K8S_DIR`** = **абсолютный** путь к каталогу с `deployment.yaml` (как после `cd ~/ИМЯ_РЕПО/k8s` на VPS — выполните `pwd` и скопируйте), для **`sudo kubectl`** без пароля — отдельная строка в **`sudoers`** для пользователя **`VPS_USER`** (учебный вариант).
+
+---
+
+**Поды `Running`, но сразу `CrashLoopBackOff` / много рестартов**
+
+Частая причина — **`livenessProbe`** / **`readinessProbe`**: путь HTTP в манифесте должен существовать в приложении и отвечать **2xx** быстрее **`timeoutSeconds`**. В этом репозитории FastAPI отдаёт **`GET /health`** — в **`deployment.yaml`** для пробы указан **`/health`**. Если поменяете путь в коде или в YAML несогласованно, kubelet будет перезапускать контейнер.
 
 ---
 
@@ -395,11 +410,77 @@ kubectl get pods -l app=lab1-api
 
 ---
 
+### CD через GitHub Actions: привязка репозитория к VPS
+
+После того как **вручную** проверены k3s, `kubectl` и первый деплой (шаги выше), имеет смысл автоматизировать: при **`git push`** в GitHub **собирается образ**, пушится в **Docker Hub**, по **SSH** на VPS выполняется **`kubectl set image`** (или `apply`).
+
+**Цепочка:** GitHub (runner) → registry (Docker Hub) → SSH → ваш пользователь на VPS → `sudo kubectl` → k3s.
+
+#### Предпосылки на VPS
+
+1. Уже выполнены **п. 1–5** ручного деплоя: k3s, `~/.kube/config`, **`KUBECONFIG`** в `~/.bashrc` (или готовность вызывать `sudo kubectl --kubeconfig "$HOME/.kube/config"`).
+2. Известен **абсолютный путь** к каталогу с **`deployment.yaml`** на VPS: зайдите по SSH, выполните `cd ~/ИМЯ_РЕПО/k8s` (как в **п. 4** ручного деплоя), затем **`pwd`** — эту строку укажите в секрете **`VPS_K8S_DIR`**. Пример: репозиторий клонировали в **`~/my-lab`** → путь **`/home/ВАШ_USER/my-lab/k8s`** (не путать с именем репозитория на GitHub).
+3. Пользователь VPS, под которым заходит **GitHub Actions по SSH**, может выполнять **`sudo kubectl`** **без интерактивного пароля** (настроить **`/etc/sudoers.d/…`** для этого пользователя и команды kubectl — учебный вариант; в проде лучше отдельный ключ и минимальные права).
+
+#### Ключ SSH для GitHub
+
+1. На **своём ПК** (или на VPS) сгенерируйте пару ключей **только для CI**, без passphrase (удобно для runner):
+
+```bash
+ssh-keygen -t ed25519 -C "github-actions-deploy" -f ./gha_k3s_deploy -N ""
+```
+
+2. **Публичный** ключ `gha_k3s_deploy.pub` добавьте на VPS в **`~/.ssh/authorized_keys`** того пользователя, от имени которого пойдёт деплой (тот же, что в секрете **`VPS_USER`**).
+
+3. **Приватный** ключ `gha_k3s_deploy` целиком (включая строки `BEGIN` / `END`) сохраните в GitHub: репозиторий → **Settings → Secrets and variables → Actions → New repository secret** → имя **`VPS_SSH_KEY`**, значение — содержимое файла.
+
+**Не коммитьте** приватный ключ в Git.
+
+#### Секреты GitHub Actions (репозиторий)
+
+| Имя секрета | Назначение |
+|-------------|------------|
+| **`DOCKERHUB_USERNAME`** | Логин Docker Hub (как в имени образа). |
+| **`DOCKERHUB_TOKEN`** | [Access Token](https://hub.docker.com/settings/security) Docker Hub (**Read & Write** для push). |
+| **`VPS_HOST`** | IP или DNS VPS, например `81.90.182.174` или `alekseeva.h1n.ru`. |
+| **`VPS_USER`** | SSH-пользователь на VPS (тот, у кого в `authorized_keys` ключ CI). |
+| **`VPS_SSH_KEY`** | Приватный ключ (см. выше). |
+| **`VPS_K8S_DIR`** | Абсолютный путь к каталогу с `deployment.yaml` (результат **`pwd`** в `~/ИМЯ_РЕПО/k8s` на VPS). |
+
+При необходимости нестандартного SSH-порта добавьте в workflow параметр `port` у шага SSH (см. [appleboy/ssh-action](https://github.com/appleboy/ssh-action)).
+
+#### Что делает пример `ci-cd.yml`
+
+1. **Триггер:** push в ветки **`main`** или **`master`** (при необходимости измените в YAML).
+2. **Сборка:** `docker build` из корня репозитория (где **Dockerfile**), теги образа: **`GITHUB_SHA`** (уникально на коммит) и **`latest`**.
+3. **Публикация:** `docker login` + `docker push` в Docker Hub.
+4. **Деплой:** по SSH одна команда вида **`kubectl set image deployment/lab1-api lab1-api=$DOCKERHUB_USERNAME/lab1-api:$GITHUB_SHA`**, затем **`kubectl rollout status`**. Имя деплоймента и контейнера должны совпадать с вашим **`deployment.yaml`**.
+
+Так k3s **подтягивает новый слой** по смене тега (не полагается только на `latest` с **`imagePullPolicy: IfNotPresent`**).
+
+**Совместимость с GitOps (Argo CD):** этот workflow — **push-CD** (SSH + `kubectl`), он **не обновляет** манифесты в Git. Если на кластере **Argo CD** уже ведёт те же ресурсы, не запускайте оба сценария без понимания (см. предупреждение в разделе Argo CD). Для **только GitOps** отключите job **`deploy`** в **`ci-cd.yml`** или замените его на шаг «commit нового `image:` в репозиторий».
+
+#### Проверка пайплайна
+
+1. Закоммитьте изменение, убедитесь, что секреты заданы: **Settings → Secrets and variables → Actions**.
+2. Вкладка **Actions** → выберите последний workflow → шаги **build** и **deploy** должны быть зелёными.
+3. На VPS: `kubectl get pods -l app=lab1-api` — новые поды после выката.
+
+Типичные ошибки: **Permission denied (publickey)** — ключ не в `authorized_keys` или неверный **`VPS_USER`**; **`sudo: a password is required`** — не настроен passwordless sudo для `kubectl`; **`unable to resolve`** — неверный **`VPS_HOST`**.
+
+Файл в репозитории: **`.github/workflows/ci-cd.yml`**.
+
+---
+
 ## GitOps (опционально): Argo CD
 
-**Когда читать:** после того, как **лабораторное приложение уже работает** (поды `Running`, при необходимости открыт **NodePort**), и понятен **ручной выкат** через `kubectl`. Этот раздел **не заменяет** шаги выше: он показывает **другой способ CD** (pull из Git).
+**Когда читать:** после того, как **лабораторное приложение уже работает** (поды `Running`, при необходимости открыт **NodePort**), и понятен **ручной выкат** через `kubectl`. Раздел **не заменяет** шаги выше: это **другой способ CD** (pull из Git).
 
-Если включили Argo CD для тех же манифестов, **не смешивайте** постоянно **ручной `kubectl apply`** и **синхронизацию из Argo CD** для одного и того же Deployment без договорённости — возможны «откаты» состояния при следующем Sync.
+**Где выполнять команды:** на **VPS в SSH** (как в основной части) или на **своём ПК**, если `kubectl` настроен на тот же кластер (`KUBECONFIG`). Вывод в шагах может немного отличаться по времени и именам подов.
+
+**Пример манифеста `Application`:** файл **`k8s/argocd-application.yaml`** в репозитории — подставьте свой **`repoURL`** и ветку (**`targetRevision`**).
+
+Если включили Argo CD для тех же манифестов, **не смешивайте** постоянно **ручной `kubectl apply`** и **синхронизацию из Argo CD** для одного и того же Deployment без договорённости — возможны «откаты» при следующем Sync.
 
 ### Зачем это в курсе
 
@@ -415,75 +496,218 @@ kubectl get pods -l app=lab1-api
 
 ---
 
-### Условия на VPS
+### Шаг 0. Предпосылки
 
-- **Ресурсы:** Argo CD — набор подов в namespace `argocd`; на слабом VPS оставьте **Traefik отключённым** (`disable: traefik` в k3s), чтобы не конкурировать с **nginx** на 80/443 (см. **`k3s_traefik_nginx_conflict.md`**).
-- **Доступ к UI:** проще всего на занятии использовать **`kubectl port-forward`** (не занимает 80/443 на хосте). Проброс HTTPS с сервера:
-
-```bash
-# после установки Argo CD (см. ниже)
-kubectl port-forward svc/argocd-server -n argocd 8443:443 --address 127.0.0.1
-```
-
-Дальше в браузере на VPS (или через SSH tunnel с вашего ПК): `https://127.0.0.1:8443` — предупреждение о сертификате можно принять в учебных целях.
-
-Альтернатива: изменить тип сервиса **`argocd-server`** на **NodePort** и открыть порт в UFW/панели провайдера — наглядно с другой машины, но больше настроек и вопросов безопасности.
+1. **k3s** (или другой Kubernetes) работает, `kubectl get nodes` показывает **Ready**.
+2. **Ресурсы:** Argo CD — набор подов в namespace **`argocd`**. На VPS с **nginx** на 80/443 держите **Traefik в k3s отключённым** (`disable: traefik` в `/etc/rancher/k3s/config.yaml`), иначе см. **`k3s_traefik_nginx_conflict.md`**.
+3. Репозиторий с манифестами в **`k8s/`** доступен с GitHub: для **публичного** репо достаточно HTTPS; для **приватного** позже добавьте учётные данные в Argo CD → **Settings → Repositories**.
 
 ---
 
-### Установка Argo CD (официальный манифест)
+### Шаг 1. Namespace для Argo CD
 
-На машине с настроенным **`kubectl`** к k3s (на VPS или с ПК при корректном `KUBECONFIG`):
+**Зачем:** компоненты Argo CD изолированы в своём namespace.
 
 ```bash
 kubectl create namespace argocd
+```
+
+Ожидаемо: `namespace/argocd created`. Если namespace уже есть — сообщение об ошибке можно игнорировать.
+
+---
+
+### Шаг 2. Установка (официальный манифест)
+
+**Зачем:** CRD **`Application`**, деплойменты **`argocd-server`**, **`argocd-repo-server`**, Redis, контроллеры.
+
+```bash
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 ```
 
-Дождитесь готовности подов:
+**Возможная ошибка** (иногда на Docker Desktop и отдельных версиях Kubernetes): для CRD **ApplicationSet** — `metadata.annotations: Too long`. Остальные ресурсы часто уже созданы; проверьте поды (шаг 3). Подробности — [issues Argo CD](https://github.com/argoproj/argo-cd/issues) или фиксированная версия манифеста.
+
+---
+
+### Шаг 3. Дождаться готовности подов
+
+**Зачем:** пока **`argocd-server`** и **`argocd-repo-server`** не в **Running**, UI и клон Git не работают.
 
 ```bash
 kubectl get pods -n argocd -w
 ```
 
-Пароль начального пользователя **`admin`**:
+Остановите просмотр (**Ctrl+C**), когда у основных подов **READY 1/1**. Снимок:
+
+```bash
+kubectl get pods -n argocd
+```
+
+---
+
+### Шаг 4. Пароль пользователя `admin`
+
+**Зачем:** первый вход в веб-UI. Сохраните пароль **вне Git**.
+
+**Linux / macOS / Git Bash:**
 
 ```bash
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
 ```
 
-Войдите в UI под **`admin`** и этим паролем; после занятия смените пароль или отключите начальный секрет по [документации Argo CD](https://argo-cd.readthedocs.io/).
+**PowerShell:**
+
+```powershell
+$p = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}'
+[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($p))
+```
+
+После занятия смените пароль или настройте SSO по [документации Argo CD](https://argo-cd.readthedocs.io/).
 
 ---
 
-### Подключить репозиторий с манифестами `k8s/`
+### Шаг 5. Веб-интерфейс (`port-forward`)
 
-1. В UI: **Applications → New App** (или создайте YAML **Application** и примените `kubectl apply -f`).
-2. Укажите **URL** GitHub-репозитория (для **приватного** репо добавьте учётные данные в **Settings → Repositories** в Argo CD).
-3. **Revision:** ветка (например `main`).
-4. **Path:** каталог **`k8s`** (если манифесты лежат в корне репо — укажите `.` или нужный подкаталог).
-5. **Cluster:** `https://kubernetes.default.svc` (текущий кластер), namespace **`default`** (или тот, куда вы деплоите).
+**Зачем:** не занимать 80/443 на хосте; для учебы безопаснее, чем сразу выставлять NodePort в интернет.
 
-Сохраните приложение и выполните **Sync** — Argo CD применит **`deployment.yaml`** и **`service.yaml`** из Git. Дальнейшие изменения в Git после **commit/push** можно подтянуть кнопкой **Refresh/Sync** или включить автоматический политикой sync (осторожно в проде; для учебы удобно).
+В **отдельном** терминале (процесс должен оставаться запущенным):
+
+```bash
+kubectl port-forward svc/argocd-server -n argocd 8443:443 --address 127.0.0.1
+```
+
+- Браузер: **`https://127.0.0.1:8443`**
+- Логин: **`admin`**, пароль — из шага 4.
+- Предупреждение о сертификате в учебных целях можно принять.
+
+**Доступ с ПК к UI на VPS:** туннель SSH, например:
+
+```bash
+ssh -L 8443:127.0.0.1:8443 пользователь@IP_VPS
+```
+
+На VPS в другом сеансе выполните тот же **`port-forward`**; браузер на ПК — снова **`https://127.0.0.1:8443`**.
+
+**Альтернатива:** тип сервиса **`argocd-server`** → **NodePort**, порт открыть в UFW и у провайдера — удобно с другой машины, но больше настроек и вопросов безопасности.
 
 ---
 
-### Связка с CI (образ + GitOps)
+### Шаг 6. Объявить `Application` (Git → кластер)
 
-Типичная схема:
+**Зачем:** указать репозиторий, ветку, каталог с YAML и целевой namespace в кластере.
 
-1. **CI** по-прежнему собирает образ и делает **`docker push`** в registry.
-2. В **`deployment.yaml`** в Git обновляется поле **`image:`** (новый тег) — вручную, отдельным коммитом или шагом в GitHub Actions (**commit** в репозиторий с `GITHUB_TOKEN`).
-3. **Argo CD** видит новый коммит и синхронизирует кластер — поды пересоздаются с новым образом (при **`imagePullPolicy: Always`** или смене тега).
+#### Вариант A — через UI
 
-Так **сборка** остаётся в CI, а **выкат манифестов** — в зоне ответственности GitOps.
+1. **Applications → New App** (или **Edit as YAML**).
+2. **Application name:** например `lab1-k8s`.
+3. **Project:** `default`.
+4. **Sync policy:** для начала **Manual**; **AUTO-SYNC** — осторожно в проде.
+5. **Repository URL:** `https://github.com/ВАШ_АККАУНТ/ВАШ_РЕПО.git`
+6. **Revision:** `main` или `master`.
+7. **Path:** `k8s` (каталог с `deployment.yaml` и `service.yaml`).
+8. **Cluster URL:** `https://kubernetes.default.svc`
+9. **Namespace:** `default` (или ваш).
+
+**Create** → **Sync** / **Synchronize**. Дальнейшие изменения в Git и повторный выкат — **GitOps, шаг 8** (не путать с **ручным п. 8 «браузер»** выше).
+
+#### Вариант B — манифест в репозитории
+
+Подставьте **`repoURL`** и **`targetRevision`** в **`k8s/argocd-application.yaml`**, затем:
+
+```bash
+kubectl apply -f k8s/argocd-application.yaml
+```
+
+В примере по умолчанию **без** блока **`automated`** в `syncPolicy` — после создания нажмите **Sync** в UI (или CLI: `argocd app sync lab1-k8s`, если установлен **argocd** CLI). Раскомментировав **`automated`** в YAML, синхронизация пойдёт по расписанию сама.
+
+Для **приватного** репозитория сначала настройте доступ в **Settings → Repositories**.
+
+---
+
+### Шаг 7. Проверка
+
+```bash
+kubectl get application -n argocd
+kubectl get pods -n default -l app=lab1-api
+```
+
+В UI ожидаются статусы **Synced** и **Healthy** (после успешного pull образов из registry).
+
+---
+
+### Шаг 8 (GitOps). Деплой через Argo CD после правок в Git
+
+Это **основной учебный цикл GitOps** (номер **8** относится только к разделу Argo CD, не к **ручному п. 8** про браузер): кластер приводится к состоянию **последнего коммита** в отслеживаемой ветке; **SSH на VPS для `kubectl apply` не нужен** (в отличие от раздела «CD через GitHub Actions»).
+
+#### 8.1. Убедитесь, что приложение уже синхронизировано один раз
+
+В UI у **Application** статусы **Synced** и **Healthy** (как в шаге 7). Если включён только ручной sync — после первого создания приложения вы уже нажимали **Sync**.
+
+#### 8.2. Внесите изменение в манифесты в Git
+
+На **своём ПК** (или в веб-редакторе GitHub) измените файлы в каталоге **`k8s/`**, например:
+
+- **`deployment.yaml`:** другое значение **`replicas`**, другой тег в **`image:`** (образ должен уже существовать в registry), правка **`livenessProbe`** и т.д.;
+- или **`service.yaml`** (осторожно с **`nodePort`** — не занимайте чужой порт).
+
+Сохраните коммит и отправьте в **ту же ветку**, которую указали в **Application** (**`targetRevision`** / **Revision**):
+
+```bash
+git add k8s/deployment.yaml
+git commit -m "chore(k8s): обновление манифеста для Argo CD"
+git push origin main
+```
+
+(Вместо **`main`** укажите **`master`**, если так настроено в Argo CD.)
+
+#### 8.3. Подтянуть изменения в кластер
+
+- **Ручная синхронизация:** в UI Argo CD откройте приложение → **Refresh** (подтянуть коммиты с GitHub) → при статусе **OutOfSync** нажмите **Sync** / **Synchronize**.  
+- **Автоматическая:** если в **`Application`** включён **`syncPolicy.automated`**, Argo CD сам периодически опрашивает репозиторий и применит изменения без кнопки (задержка до ~3 минут по умолчанию или настройте [webhook](https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#argocd-server-and-ui-ingress-certificate)).
+
+#### 8.4. Проверка
+
+В UI: снова **Synced** / **Healthy**, в **History** видна новая ревизия (коммит).
+
+В терминале (на VPS или с `kubectl` к кластеру):
+
+```bash
+kubectl get pods -l app=lab1-api
+kubectl describe deployment lab1-api | sed -n '1,40p'
+```
+
+Должны отражаться ваши правки (число подов, образ и т.д.). Если меняли только **`image:`**, убедитесь, что тег **уже запушен** в Docker Hub, иначе поды уйдут в **ImagePullBackOff** (см. п. 11 основной части).
+
+#### 8.5. Связь с CI
+
+Сборка образа по-прежнему делается **локально** или **GitHub Actions** (без шага SSH `kubectl`, если вы на **чистом GitOps**). После **`docker push`** обновите **`image:`** в **`deployment.yaml`**, сделайте **commit + push** — затем снова шаги **8.3–8.4**. Подробнее — шаг 9.
+
+---
+
+### Шаг 9. Связка с CI (образ + GitOps)
+
+1. **CI** собирает образ и делает **`docker push`** в registry.
+2. В **`deployment.yaml`** в Git обновляют поле **`image:`** (новый тег) — вручную, коммитом или шагом GitHub Actions с **`GITHUB_TOKEN`**.
+3. **Argo CD** обнаруживает новый коммит (опрос / webhook) и при включённой политике sync обновляет Deployment — поды пересоздаются при **`imagePullPolicy: Always`** или смене тега.
+
+**Сборка** остаётся в CI, **выкат манифестов** — в зоне GitOps. **Не смешивайте** без договорённости постоянный **`kubectl apply`** тех же файлов и **Argo CD Sync**.
+
+---
+
+### Удаление Argo CD с кластера (по желанию)
+
+```bash
+kubectl delete -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl delete namespace argocd
+```
+
+Остаточные CRD и порядок действий — в [документации по uninstall](https://argo-cd.readthedocs.io/en/stable/operator-manual/installation/#uninstall).
 
 ---
 
 ### Что не входит в минимум методички
 
-- **Argo CD Image Updater** и автоматическое обновление тегов из registry — отдельная тема.
-- **Отдельный GitOps-репозиторий** только под `k8s/` — продвинутый вариант; для учебы достаточно папки **`k8s/`** в том же репозитории, что и приложение.
+- **Argo CD Image Updater** и автообновление тегов из registry — отдельная тема.
+- **Отдельный репозиторий** только под `k8s/` — продвинутый вариант; для учебы достаточно папки **`k8s/`** в том же репо, что и приложение.
 
 ---
 

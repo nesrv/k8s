@@ -1,0 +1,25 @@
+# Пример Application для Argo CD (GitOps).
+# Применение: kubectl apply -f k8s/argocd-application.yaml
+# Подставьте свой repoURL и targetRevision (main/master).
+# Цикл «правка k8s/* → git push → Sync в Argo CD» — laba_ci_cd_vps.md, GitOps шаг 8.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lab1-k8s
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/nesrv/k8s.git
+    targetRevision: master
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    # Для авто-синхронизации раскомментируйте блок automated:
+    # automated:
+    #   prune: false
+    #   selfHeal: false

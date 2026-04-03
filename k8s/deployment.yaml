@@ -20,7 +20,7 @@ spec:
             - containerPort: 8000
           livenessProbe:
             httpGet:
-              path: /slow
+              path: /health
               port: 8000
             timeoutSeconds: 2
             periodSeconds: 5

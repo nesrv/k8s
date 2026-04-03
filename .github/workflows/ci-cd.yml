@@ -1,0 +1,50 @@
+# Сборка образа, push в Docker Hub, выкат на VPS (k3s) по SSH (push-CD).
+# Секреты: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN, VPS_HOST, VPS_USER, VPS_SSH_KEY, VPS_K8S_DIR
+# См. laba_ci_cd_vps.md — «CD через GitHub Actions». Для сценария только Argo CD job deploy отключите или замените.
+name: CI/CD Docker Hub and k3s
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: lab1-api
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH — kubectl set image on VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            export KUBECONFIG="$HOME/.kube/config"
+            cd "${{ secrets.VPS_K8S_DIR }}"
+            sudo kubectl set image deployment/lab1-api lab1-api=${{ secrets.DOCKERHUB_USERNAME }}/lab1-api:${{ github.sha }}
+            sudo kubectl rollout status deployment/lab1-api --timeout=120s
